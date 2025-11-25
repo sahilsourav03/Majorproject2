@@ -13,17 +13,34 @@ from pathlib import Path
 def fix_tabs_in_file(filepath: Path) -> bool:
     """Convert tabs to spaces (4 spaces per tab) in a Python file.
     
+    Also normalizes line endings and removes trailing whitespace.
     Returns True if tabs were found and fixed, False otherwise.
     """
     try:
+        # Read as binary to preserve exact content
         content = filepath.read_bytes()
+        original_content = content
         
-        # Check if file has tabs
+        # Convert tabs to 4 spaces
         if b'\t' in content:
-            # Convert tabs to 4 spaces
-            new_content = content.replace(b'\t', b'    ')
-            filepath.write_bytes(new_content)
-            print(f"✓ Fixed tabs in: {filepath}")
+            content = content.replace(b'\t', b'    ')
+        
+        # Normalize line endings to Unix (LF only)
+        content = content.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+        
+        # Remove trailing whitespace from each line
+        lines = content.split(b'\n')
+        cleaned_lines = []
+        for line in lines:
+            # Remove trailing spaces/tabs but keep the newline structure
+            cleaned_line = line.rstrip(b' \t')
+            cleaned_lines.append(cleaned_line)
+        content = b'\n'.join(cleaned_lines)
+        
+        # Only write if something changed
+        if content != original_content:
+            filepath.write_bytes(content)
+            print(f"✓ Fixed: {filepath}")
             return True
         return False
     except Exception as e:
