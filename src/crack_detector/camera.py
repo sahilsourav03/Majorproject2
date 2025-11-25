@@ -23,20 +23,52 @@ class VideoStream:
         self._fps = 0.0
 
     def open(self) -> None:
-        LOGGER.info("Opening camera index %s", self.cfg.index)
-        self._cap = cv2.VideoCapture(self.cfg.index)
-        if not self._cap.isOpened():  # pragma: no cover - hardware failure path
-            raise RuntimeError("Failed to open camera. Check wiring and permissions.")
+        # Convert index to device path
+        try:
+            idx = int(self.cfg.index)
+            device = f"/dev/video{idx}"
+        except Exception:
+            device = str(self.cfg.index)
 
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.cfg.width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.cfg.height)
-        self._cap.set(cv2.CAP_PROP_FPS, self.cfg.fps)
-        LOGGER.info(
-            "Camera ready at %sx%s @ %sfps",
-            self.cfg.width,
-            self.cfg.height,
-            self.cfg.fps,
-        )
+        LOGGER.info("Opening camera device %s using V4L2 backend...", device)
+
+        # Open with explicit V4L2 backend
+        self._cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+        if not self._cap.isOpened():
+            LOGGER.error("Failed opening camera with V4L2. Retrying with ANY backend...")
+            self._cap = cv2.VideoCapture(device)
+
+        if not self._cap.isOpened():
+            raise RuntimeError("Failed to open camera. Check wiring, USB port, permissions.")
+
+        # Apply working resolution + fps
+        width = getattr(self.cfg, "width", 1280)
+        height = getattr(self.cfg, "height", 720)
+        fps = getattr(self.cfg, "fps", 15)
+
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self._cap.set(cv2.CAP_PROP_FPS, fps)
+
+        # Warm up camera
+        time.sleep(0.5)
+
+        # Verify first frame
+        ok = False
+        for _ in range(5):
+            ret, frame = self._cap.read()
+            if ret and frame is not None:
+                ok = True
+                break
+            time.sleep(0.1)
+
+        if not ok:
+            LOGGER.error("Camera opened but no frames could be read.")
+            self._cap.release()
+            self._cap = None
+            raise RuntimeError("Camera failed to deliver frames after open()")
+
+        LOGGER.info("Camera ready at %sx%s @ %sfps", width, height, fps)
 
     def read(self) -> Tuple[bool, Optional[cv2.Mat]]:
         if self._cap is None:
