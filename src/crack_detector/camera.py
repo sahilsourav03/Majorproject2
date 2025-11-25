@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 import time
 from typing import Optional, Tuple
 
@@ -23,19 +24,29 @@ class VideoStream:
         self._fps = 0.0
 
     def open(self) -> None:
-        # Convert index to device path
-        try:
-            idx = int(self.cfg.index)
-            device = f"/dev/video{idx}"
-        except Exception:
-            device = str(self.cfg.index)
+        # Detect OS and handle camera access accordingly
+        system = platform.system()
+        is_linux = system == "Linux"
 
-        LOGGER.info("Opening camera device %s using V4L2 backend...", device)
+        if is_linux:
+            # On Linux/Raspberry Pi: convert index to device path
+            try:
+                idx = int(self.cfg.index)
+                device = f"/dev/video{idx}"
+            except Exception:
+                device = str(self.cfg.index)
 
-        # Open with explicit V4L2 backend
-        self._cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
-        if not self._cap.isOpened():
-            LOGGER.error("Failed opening camera with V4L2. Retrying with ANY backend...")
+            LOGGER.info("Opening camera device %s using V4L2 backend...", device)
+
+            # Open with explicit V4L2 backend (Linux/Raspberry Pi)
+            self._cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+            if not self._cap.isOpened():
+                LOGGER.error("Failed opening camera with V4L2. Retrying with ANY backend...")
+                self._cap = cv2.VideoCapture(device)
+        else:
+            # On macOS/Windows: use index directly
+            device = self.cfg.index
+            LOGGER.info("Opening camera index %s...", device)
             self._cap = cv2.VideoCapture(device)
 
         if not self._cap.isOpened():
